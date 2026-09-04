@@ -16,6 +16,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <style>
   :root{
     --bg:#182029;
@@ -113,10 +116,51 @@
     font-size:.78rem;color:var(--chalk-dim);background:var(--panel-2);
     border-left:3px solid var(--accent);padding:9px 11px;border-radius:6px;margin-top:10px;line-height:1.5;
   }
+
+  /* === Login screen === */
+  #login-screen{
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    min-height:100vh; padding:32px 24px; text-align:center; gap:14px;
+  }
+  #login-screen img.login-icon{ width:76px; height:76px; border-radius:18px; margin-bottom:6px; }
+  #login-screen h1{ font-size:1.6rem; }
+  #login-screen p{ color:var(--chalk-dim); font-size:.9rem; max-width:320px; line-height:1.5; }
+  #btn-google-login{
+    display:flex; align-items:center; justify-content:center; gap:10px;
+    background:#fff; color:#1f1f1f; border:none; border-radius:10px;
+    padding:13px 22px; font-size:.95rem; font-weight:600; cursor:pointer; margin-top:10px;
+  }
+  #btn-google-login svg{ width:20px; height:20px; }
+  #login-loading{ color:var(--chalk-dim); font-size:.9rem; }
+
+  .user-bar{
+    display:flex; align-items:center; gap:10px; padding:10px 14px;
+    background:var(--panel-2); border-radius:12px; margin-bottom:14px;
+  }
+  .user-bar img{ width:36px; height:36px; border-radius:50%; }
+  .user-bar .u-info{ flex:1; overflow:hidden; }
+  .user-bar .u-name{ font-weight:600; font-size:.88rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .user-bar .u-email{ color:var(--chalk-dim); font-size:.72rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sync-badge{ font-size:.7rem; padding:2px 8px; border-radius:20px; white-space:nowrap; }
+  .sync-badge.online{ background:rgba(79,169,149,.2); color:var(--accent-2); }
+  .sync-badge.offline{ background:rgba(217,105,90,.2); color:var(--danger); }
 </style>
 </head>
 <body>
-<div class="app">
+
+<!-- === Halaman Login === -->
+<div id="login-screen">
+  <img class="login-icon" src="icon-192.png" alt="Absen">
+  <h1>Absen</h1>
+  <p>Masuk dengan akun Google untuk mulai mencatat absensi. Data akan tersimpan aman dan tersinkron otomatis di semua perangkat yang Anda gunakan.</p>
+  <button id="btn-google-login">
+    <svg viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3c-1.6 4.6-6 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 3l6-6C34.5 5.1 29.5 3 24 3 12.4 3 3 12.4 3 24s9.4 21 21 21 21-9.4 21-21c0-1.4-.1-2.7-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 15.1 18.9 12 24 12c3.1 0 5.8 1.1 8 3l6-6C34.5 5.1 29.5 3 24 3 16.3 3 9.7 7.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 45c5.4 0 10.3-2.1 14-5.4l-6.5-5.4C29.5 36 26.9 37 24 37c-5.2 0-9.6-3.3-11.3-8l-6.6 5C9.6 40.6 16.3 45 24 45z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.1-4.1 5.4l6.5 5.4C41.6 35.7 45 30.3 45 24c0-1.4-.1-2.7-.4-3.5z"/></svg>
+    Masuk dengan Google
+  </button>
+  <p id="login-loading" style="display:none;">Memeriksa status login…</p>
+</div>
+
+<div class="app" style="display:none;">
   <header>
     <h1>Absen</h1>
     <p>Absensi barcode siswa &middot; notifikasi ke WhatsApp orang tua</p>
@@ -255,6 +299,14 @@
 
     <!-- ATUR -->
     <section id="tab-atur">
+      <div class="user-bar">
+        <img id="login-user-photo" src="" alt="">
+        <div class="u-info">
+          <div class="u-name" id="login-user-name">—</div>
+          <div class="u-email" id="login-user-email">—</div>
+        </div>
+        <span class="sync-badge online" id="sync-status">Tersinkron</span>
+      </div>
       <div class="card">
         <h3>Jam Masuk</h3>
         <label>Batas jam hadir tepat waktu</label>
@@ -268,6 +320,10 @@
       <div class="card">
         <h3>Hapus semua data</h3>
         <button class="secondary" id="btn-reset" style="width:100%;color:var(--danger);border-color:var(--danger);">Reset data absensi</button>
+      </div>
+      <div class="card">
+        <h3>Akun</h3>
+        <button class="secondary" id="btn-logout" style="width:100%;">Keluar dari akun</button>
       </div>
     </section>
   </main>
@@ -283,31 +339,132 @@
 </div>
 
 <script>
-/* === PWA STORAGE SHIM ===
-   Aplikasi asli ditulis untuk memakai window.storage (khusus di dalam Artifact Claude).
-   Di luar Claude (saat di-hosting sendiri di HP/browser), window.storage tidak ada,
-   jadi kita ganti dengan penyimpanan lokal di HP memakai localStorage.
-   Data akan tetap tersimpan di HP/browser yang sama walau aplikasi ditutup atau HP dimatikan,
-   selama cache/data browser tidak dihapus manual. */
+/* === Firebase: login Google + database cloud (Firestore) === */
+const firebaseConfig = {
+  apiKey: "AIzaSyCLjaqqaBfjVW8K58Dpvwn_7m7nHzeuyaw",
+  authDomain: "absen-wali-ad8c0.firebaseapp.com",
+  projectId: "absen-wali-ad8c0",
+  storageBucket: "absen-wali-ad8c0.firebasestorage.app",
+  messagingSenderId: "1070479261841",
+  appId: "1:1070479261841:web:180a05552d9e9f2bd7bf30"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+// Aktifkan penyimpanan offline: kalau tidak ada internet, data yang diisi
+// tetap tersimpan di HP dulu, lalu otomatis terkirim ke cloud & tersinkron
+// ke semua perangkat begitu koneksi kembali.
+db.enablePersistence({ synchronizeTabs: true }).catch((err) => {
+  console.warn('Penyimpanan offline tidak aktif:', err.code);
+});
+
+window.addEventListener('online', ()=>{ const b=document.getElementById('sync-status'); if(b){ b.textContent='Tersinkron'; b.className='sync-badge online'; } });
+window.addEventListener('offline', ()=>{ const b=document.getElementById('sync-status'); if(b){ b.textContent='Offline — data tersimpan lokal'; b.className='sync-badge offline'; } });
+
+let currentUser = null;
+let userDocRef = null;
+let unsubscribeSnapshot = null;
+
+// window.storage sekarang membaca/menulis ke Firestore (data guru yang login),
+// bukan lagi ke HP masing-masing — supaya bisa sinkron antar perangkat.
 window.storage = {
   async get(key){
-    const raw = localStorage.getItem('absen_'+key);
-    return raw === null ? null : { key, value: raw };
+    if(!userDocRef) return null;
+    const snap = await userDocRef.get();
+    const data = snap.data();
+    if(!data || data[key] === undefined) return null;
+    return { key, value: data[key] };
   },
   async set(key, value){
-    localStorage.setItem('absen_'+key, value);
+    if(!userDocRef) return null;
+    await userDocRef.set({ [key]: value }, { merge: true });
     return { key, value };
   },
   async delete(key){
-    localStorage.removeItem('absen_'+key);
+    if(!userDocRef) return null;
+    await userDocRef.update({ [key]: firebase.firestore.FieldValue.delete() });
     return { key, deleted: true };
   },
-  async list(prefix){
-    const keys = Object.keys(localStorage)
-      .filter(k => k.startsWith('absen_' + (prefix||'')))
-      .map(k => k.replace('absen_',''));
-    return { keys };
+  async list(){ return { keys: [] }; }
+};
+
+function showApp(){
+  document.getElementById('login-screen').style.display = 'none';
+  document.querySelector('.app').style.display = 'flex';
+}
+function showLogin(){
+  document.getElementById('login-screen').style.display = 'flex';
+  document.querySelector('.app').style.display = 'none';
+  document.getElementById('login-loading').style.display = 'none';
+}
+
+document.getElementById('btn-google-login').onclick = async () => {
+  const provider = new firebase.auth.GoogleAuthProvider();
+  try{
+    document.getElementById('login-loading').style.display = 'block';
+    document.getElementById('login-loading').textContent = 'Membuka jendela login…';
+    await auth.signInWithPopup(provider);
+  }catch(e){
+    document.getElementById('login-loading').style.display = 'none';
+    alert('Gagal masuk: ' + e.message);
   }
+};
+
+auth.onAuthStateChanged(async (user) => {
+  if(unsubscribeSnapshot){ unsubscribeSnapshot(); unsubscribeSnapshot = null; }
+  if(user){
+    currentUser = user;
+    userDocRef = db.collection('absensi_users').doc(user.uid);
+    document.getElementById('login-user-name').textContent = user.displayName || user.email;
+    document.getElementById('login-user-email').textContent = user.email;
+    document.getElementById('login-user-photo').src = user.photoURL || '';
+
+    // Dengarkan perubahan data secara real-time — kalau data diubah dari
+    // perangkat lain (atau saat data offline tadi berhasil terkirim),
+    // tampilan di perangkat ini akan otomatis ikut update.
+    unsubscribeSnapshot = userDocRef.onSnapshot((snap) => {
+      const data = snap.data();
+      if(!data) return;
+      let changed = false;
+      if(data['siswa-list'] !== undefined){
+        try{
+          const parsed = JSON.parse(data['siswa-list']);
+          if(JSON.stringify(parsed) !== JSON.stringify(siswaList)){ siswaList = parsed; changed = true; }
+        }catch(e){}
+      }
+      if(data['riwayat-log'] !== undefined){
+        try{
+          const parsed = JSON.parse(data['riwayat-log']);
+          if(JSON.stringify(parsed) !== JSON.stringify(riwayat)){ riwayat = parsed; changed = true; }
+        }catch(e){}
+      }
+      if(data['pengaturan'] !== undefined){
+        try{
+          const parsed = JSON.parse(data['pengaturan']);
+          if(JSON.stringify(parsed) !== JSON.stringify(pengaturan)){
+            pengaturan = parsed;
+            $('#f-jam-masuk').value = pengaturan.jamMasuk;
+            $('#f-jam-masuk-scan').value = pengaturan.jamMasuk;
+            changed = true;
+          }
+        }catch(e){}
+      }
+      if(changed){ renderSiswa(); renderRiwayat(); }
+    });
+
+    showApp();
+    await loadAll();
+  } else {
+    currentUser = null;
+    userDocRef = null;
+    showLogin();
+  }
+});
+
+document.getElementById('btn-logout').onclick = async () => {
+  if(!confirm('Yakin ingin keluar dari akun ini?')) return;
+  await auth.signOut();
 };
 </script>
 

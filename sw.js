@@ -1,6 +1,6 @@
 // Service worker sederhana untuk aplikasi Absen
 // Menyimpan file inti agar aplikasi tetap bisa dibuka walau sinyal internet lemah/hilang
-const CACHE_NAME = 'absen-cache-v1';
+const CACHE_NAME = 'absen-cache-v2';
 const CORE_FILES = [
   './index.html',
   './manifest.json',
