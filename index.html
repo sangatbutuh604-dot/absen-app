@@ -1,0 +1,719 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Absen — Absensi Barcode Siswa</title>
+
+<!-- === PWA: manifest, theme color, icons === -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#182029">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Absen">
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --bg:#182029;
+    --panel:#212b37;
+    --panel-2:#283443;
+    --line:#374350;
+    --chalk:#F1EEE6;
+    --chalk-dim:#A9B3BE;
+    --accent:#E3A542;
+    --accent-2:#4FA995;
+    --danger:#D9695A;
+    --bolos:#B85C8A;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--chalk);
+    font-family:'Segoe UI',Inter,system-ui,sans-serif;
+    -webkit-tap-highlight-color:transparent;
+  }
+  h1,h2,h3{font-family:Georgia,'Times New Roman',serif; margin:0 0 4px;}
+  .app{max-width:480px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column;}
+  header{
+    padding:20px 18px 14px;
+    border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,#1c2531,#182029);
+  }
+  header h1{font-size:1.5rem;letter-spacing:.3px;}
+  header p{margin:0;color:var(--chalk-dim);font-size:.85rem;}
+  nav{display:flex;border-bottom:1px solid var(--line);}
+  nav button{
+    flex:1;padding:13px 0;background:none;border:none;color:var(--chalk-dim);
+    font-size:.9rem;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;
+  }
+  nav button.active{color:var(--accent);border-bottom-color:var(--accent);}
+  main{flex:1;padding:18px;padding-bottom:40px;}
+  section{display:none;}
+  section.active{display:block;}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px;}
+  .muted{color:var(--chalk-dim);font-size:.85rem;line-height:1.5;}
+
+  #video-wrap{position:relative;border-radius:14px;overflow:hidden;background:#000;aspect-ratio:3/4;}
+  #video{width:100%;height:100%;object-fit:cover;display:block;}
+  #scan-frame{position:absolute;inset:15%;border:2px solid rgba(227,165,66,.85);border-radius:12px;pointer-events:none;}
+  .cam-btns{display:flex;gap:10px;margin-top:12px;}
+  button.primary{
+    background:var(--accent);color:#1b1206;border:none;border-radius:10px;
+    padding:12px 16px;font-size:.95rem;font-weight:700;cursor:pointer;flex:1;
+  }
+  button.secondary{
+    background:transparent;color:var(--chalk);border:1px solid var(--line);border-radius:10px;
+    padding:12px 16px;font-size:.9rem;cursor:pointer;flex:1;
+  }
+  button.small{padding:7px 11px;font-size:.8rem;border-radius:8px;}
+  #scan-result{margin-top:12px;padding:12px;border-radius:10px;font-size:.95rem;display:none;}
+  #scan-result.ok{background:rgba(79,169,149,.18);border:1px solid var(--accent-2);display:block;}
+  #scan-result.warn{background:rgba(217,105,90,.18);border:1px solid var(--danger);display:block;}
+
+  .row{display:flex;gap:8px;margin-bottom:10px;}
+  input,select{
+    width:100%;padding:10px 12px;border-radius:9px;border:1px solid var(--line);
+    background:var(--panel-2);color:var(--chalk);font-size:.9rem;
+  }
+  label{font-size:.78rem;color:var(--chalk-dim);display:block;margin-bottom:4px;}
+
+  .list-item{
+    display:flex;justify-content:space-between;align-items:center;
+    padding:11px 0;border-bottom:1px solid var(--line);
+  }
+  .list-item:last-child{border-bottom:none;}
+  .list-item .name{font-weight:600;}
+  .list-item .sub{color:var(--chalk-dim);font-size:.78rem;}
+  .actions{display:flex;gap:6px;}
+
+  table{width:100%;border-collapse:collapse;font-size:.83rem;}
+  th,td{text-align:left;padding:8px 4px;border-bottom:1px solid var(--line);}
+  th{color:var(--chalk-dim);font-weight:600;font-size:.75rem;}
+  .status-tag{padding:2px 8px;border-radius:20px;font-size:.72rem;font-weight:700;}
+  .status-tag.hadir{background:rgba(79,169,149,.2);color:var(--accent-2);}
+  .status-tag.terlambat{background:rgba(227,165,66,.2);color:var(--accent);}
+  .status-tag.absen{background:rgba(217,105,90,.2);color:var(--danger);}
+  .status-tag.bolos{background:rgba(184,92,138,.2);color:var(--bolos);}
+
+  .modal-bg{
+    position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;
+    align-items:center;justify-content:center;z-index:50;padding:20px;
+  }
+  .modal-bg.show{display:flex;}
+  .modal{background:var(--panel);border-radius:14px;padding:20px;max-width:320px;width:100%;text-align:center;}
+  .modal img{background:#fff;padding:10px;border-radius:8px;margin:12px 0;}
+
+  .note{
+    font-size:.78rem;color:var(--chalk-dim);background:var(--panel-2);
+    border-left:3px solid var(--accent);padding:9px 11px;border-radius:6px;margin-top:10px;line-height:1.5;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Absen</h1>
+    <p>Absensi barcode siswa &middot; notifikasi ke WhatsApp orang tua</p>
+  </header>
+
+  <nav>
+    <button class="tab-btn active" data-tab="scan">Pindai</button>
+    <button class="tab-btn" data-tab="siswa">Siswa</button>
+    <button class="tab-btn" data-tab="riwayat">Riwayat</button>
+    <button class="tab-btn" data-tab="atur">Atur</button>
+  </nav>
+
+  <main>
+    <!-- SCAN -->
+    <section id="tab-scan" class="active">
+      <div class="card">
+        <div class="row" style="align-items:flex-end;">
+          <div style="flex:1">
+            <label>Batas jam hadir hari ini</label>
+            <input type="time" id="f-jam-masuk-scan">
+          </div>
+        </div>
+        <p class="muted" style="margin:0 0 10px;">Ubah setiap pagi sesuai jadwal — misalnya setelah apel pagi. Absen yang masuk setelah jam ini otomatis ditandai "Terlambat".</p>
+        <div class="cam-btns" style="margin-bottom:12px;">
+          <button class="primary" id="mode-masuk" style="opacity:1;">Absen Masuk</button>
+          <button class="secondary" id="mode-pulang">Absen Pulang</button>
+        </div>
+        <div id="video-wrap">
+          <video id="video" playsinline muted></video>
+          <div id="scan-frame"></div>
+        </div>
+        <div class="cam-btns">
+          <button class="primary" id="btn-start">Mulai Kamera</button>
+          <button class="secondary" id="btn-stop" style="display:none;">Berhenti</button>
+        </div>
+        <div id="scan-result"></div>
+      </div>
+      <p class="muted">Arahkan kamera ke kode QR pada kartu siswa. Setiap kode hanya tercatat sekali per hari untuk tiap tipe (masuk/pulang).</p>
+    </section>
+
+    <!-- SISWA -->
+    <section id="tab-siswa">
+      <div class="card">
+        <h3>Tambah Siswa</h3>
+        <div class="row">
+          <div style="flex:1"><label>Nama siswa</label><input id="f-nama" placeholder="Nama lengkap"></div>
+        </div>
+        <div class="row">
+          <div style="flex:1"><label>No. WhatsApp orang tua</label><input id="f-hp" placeholder="08xxxxxxxxxx"></div>
+        </div>
+        <button class="primary" id="btn-add-siswa" style="width:100%">Tambah &amp; Buat Kode QR</button>
+      </div>
+      <div class="card">
+        <h3>Daftar Siswa (<span id="jumlah-siswa">0</span>)</h3>
+        <div id="siswa-list"></div>
+      </div>
+    </section>
+
+    <!-- RIWAYAT -->
+    <section id="tab-riwayat">
+      <div class="card">
+        <h3>Catat Ketidakhadiran (Sakit/Izin/Alpa/Bolos)</h3>
+        <p class="muted" style="margin:0 0 10px;">Untuk siswa yang tidak hadir dan tidak sempat dipindai — bisa diisi untuk tanggal berapa pun.</p>
+        <div class="row">
+          <div style="flex:1">
+            <label>Siswa</label>
+            <select id="f-absen-siswa"></select>
+          </div>
+        </div>
+        <div class="row">
+          <div style="flex:1">
+            <label>Tanggal</label>
+            <input type="date" id="f-absen-tanggal">
+          </div>
+          <div style="flex:1">
+            <label>Keterangan</label>
+            <select id="f-absen-status">
+              <option value="sakit">Sakit</option>
+              <option value="izin">Izin</option>
+              <option value="alpa">Alpa (tanpa keterangan)</option>
+              <option value="bolos">Bolos (kabur/tidak masuk sengaja)</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div style="flex:1">
+            <label>Catatan tambahan (opsional)</label>
+            <input id="f-absen-catatan" placeholder="misalnya: demam, surat dokter, dsb.">
+          </div>
+        </div>
+        <button class="primary" id="btn-catat-absen" style="width:100%">Simpan Ketidakhadiran</button>
+      </div>
+
+      <div class="card">
+        <h3 style="margin:0 0 10px;">Riwayat Hari Ini</h3>
+        <table>
+          <thead><tr><th>Jam</th><th>Nama</th><th>Tipe</th><th>Status</th><th></th></tr></thead>
+          <tbody id="riwayat-body"></tbody>
+        </table>
+        <p class="muted" id="riwayat-kosong">Belum ada absensi hari ini.</p>
+      </div>
+
+      <div class="card">
+        <h3>Unduh Laporan Kehadiran</h3>
+        <p class="muted" style="margin:0 0 10px;">Setiap hari akan berisi satu baris per siswa dengan jam hadir dan jam pulang berdampingan.</p>
+        <div class="row">
+          <div style="flex:1">
+            <label>Periode</label>
+            <select id="f-periode">
+              <option value="harian">Harian</option>
+              <option value="mingguan">Mingguan (Senin–Minggu)</option>
+              <option value="bulanan">Bulanan</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div style="flex:1">
+            <label id="label-tanggal-laporan">Pilih tanggal</label>
+            <input type="date" id="f-tanggal-laporan">
+          </div>
+        </div>
+        <div class="row">
+          <div style="flex:1">
+            <label>Format file</label>
+            <select id="f-format-laporan">
+              <option value="excel">Excel (.xlsx)</option>
+              <option value="word">Word (.doc)</option>
+            </select>
+          </div>
+        </div>
+        <button class="primary" id="btn-unduh-laporan" style="width:100%">Unduh Laporan</button>
+        <p class="note" id="laporan-info"></p>
+      </div>
+    </section>
+
+    <!-- ATUR -->
+    <section id="tab-atur">
+      <div class="card">
+        <h3>Jam Masuk</h3>
+        <label>Batas jam hadir tepat waktu</label>
+        <input type="time" id="f-jam-masuk">
+        <p class="note">Siswa yang absen setelah jam ini akan ditandai "Terlambat" secara otomatis.</p>
+      </div>
+      <div class="card">
+        <h3>Tentang notifikasi orang tua</h3>
+        <p class="muted">Aplikasi ini membuka chat WhatsApp ke nomor orang tua dengan pesan absensi yang sudah terisi otomatis — Anda tinggal menekan tombol Kirim di WhatsApp. Ini tidak mengirim pesan otomatis tanpa Anda ketuk, karena WhatsApp tidak mengizinkan pengiriman otomatis dari halaman web tanpa layanan berbayar (WhatsApp Business API). Cara ini gratis dan tidak perlu server.</p>
+      </div>
+      <div class="card">
+        <h3>Hapus semua data</h3>
+        <button class="secondary" id="btn-reset" style="width:100%;color:var(--danger);border-color:var(--danger);">Reset data absensi</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="modal-bg" id="qr-modal">
+  <div class="modal">
+    <h3 id="qr-nama"></h3>
+    <div id="qr-code"></div>
+    <p class="muted">Cetak/tunjukkan kode ini sebagai kartu siswa untuk dipindai.</p>
+    <button class="primary" id="qr-close" style="width:100%;margin-top:8px;">Tutup</button>
+  </div>
+</div>
+
+<script>
+/* === PWA STORAGE SHIM ===
+   Aplikasi asli ditulis untuk memakai window.storage (khusus di dalam Artifact Claude).
+   Di luar Claude (saat di-hosting sendiri di HP/browser), window.storage tidak ada,
+   jadi kita ganti dengan penyimpanan lokal di HP memakai localStorage.
+   Data akan tetap tersimpan di HP/browser yang sama walau aplikasi ditutup atau HP dimatikan,
+   selama cache/data browser tidak dihapus manual. */
+window.storage = {
+  async get(key){
+    const raw = localStorage.getItem('absen_'+key);
+    return raw === null ? null : { key, value: raw };
+  },
+  async set(key, value){
+    localStorage.setItem('absen_'+key, value);
+    return { key, value };
+  },
+  async delete(key){
+    localStorage.removeItem('absen_'+key);
+    return { key, deleted: true };
+  },
+  async list(prefix){
+    const keys = Object.keys(localStorage)
+      .filter(k => k.startsWith('absen_' + (prefix||'')))
+      .map(k => k.replace('absen_',''));
+    return { keys };
+  }
+};
+</script>
+
+<script>
+const $ = s => document.querySelector(s);
+let siswaList = [];
+let riwayat = [];
+let pengaturan = { jamMasuk: "07:00" };
+let stream = null, scanning = false, lastScan = {};
+let mode = 'masuk';
+
+$('#mode-masuk').onclick = ()=>{ mode='masuk'; $('#mode-masuk').className='primary'; $('#mode-pulang').className='secondary'; };
+$('#mode-pulang').onclick = ()=>{ mode='pulang'; $('#mode-pulang').className='primary'; $('#mode-masuk').className='secondary'; };
+
+// ---------- Storage ----------
+async function loadAll(){
+  try{ const r = await window.storage.get('siswa-list'); siswaList = r ? JSON.parse(r.value) : []; }catch(e){ siswaList = []; }
+  try{ const r = await window.storage.get('riwayat-log'); riwayat = r ? JSON.parse(r.value) : []; }catch(e){ riwayat = []; }
+  try{ const r = await window.storage.get('pengaturan'); pengaturan = r ? JSON.parse(r.value) : pengaturan; }catch(e){}
+  $('#f-jam-masuk').value = pengaturan.jamMasuk;
+  $('#f-jam-masuk-scan').value = pengaturan.jamMasuk;
+  const today = new Date().toISOString().slice(0,10);
+  $('#f-tanggal-laporan').value = today;
+  $('#f-absen-tanggal').value = today;
+  renderSiswa(); renderRiwayat();
+}
+async function saveSiswa(){ try{ await window.storage.set('siswa-list', JSON.stringify(siswaList)); }catch(e){ console.error(e); } }
+async function saveRiwayat(){ try{ await window.storage.set('riwayat-log', JSON.stringify(riwayat)); }catch(e){ console.error(e); } }
+async function savePengaturan(){ try{ await window.storage.set('pengaturan', JSON.stringify(pengaturan)); }catch(e){} }
+
+// ---------- Tabs ----------
+document.querySelectorAll('.tab-btn').forEach(b=>{
+  b.onclick = ()=>{
+    document.querySelectorAll('.tab-btn').forEach(x=>x.classList.remove('active'));
+    document.querySelectorAll('main section').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    $('#tab-'+b.dataset.tab).classList.add('active');
+    if(b.dataset.tab !== 'scan') stopCamera();
+  };
+});
+
+// ---------- Siswa ----------
+function formatPhone(no){
+  let n = no.replace(/\D/g,'');
+  if(n.startsWith('0')) n = '62'+n.slice(1);
+  return n;
+}
+function genId(){ return 'SIS-'+Math.random().toString(36).slice(2,7).toUpperCase(); }
+
+$('#btn-add-siswa').onclick = async ()=>{
+  const nama = $('#f-nama').value.trim();
+  const hp = $('#f-hp').value.trim();
+  if(!nama || !hp){ alert('Isi nama dan nomor WhatsApp orang tua dulu.'); return; }
+  const siswa = { id: genId(), nama, hp: formatPhone(hp) };
+  siswaList.push(siswa);
+  await saveSiswa();
+  $('#f-nama').value=''; $('#f-hp').value='';
+  renderSiswa();
+  showQR(siswa);
+};
+
+function renderSiswa(){
+  $('#jumlah-siswa').textContent = siswaList.length;
+  const box = $('#siswa-list');
+  box.innerHTML = siswaList.length ? '' : '<p class="muted">Belum ada siswa ditambahkan.</p>';
+  siswaList.forEach(s=>{
+    const el = document.createElement('div');
+    el.className = 'list-item';
+    el.innerHTML = `
+      <div><div class="name">${s.nama}</div><div class="sub">${s.id}</div></div>
+      <div class="actions">
+        <button class="secondary small" data-qr="${s.id}">QR</button>
+        <button class="secondary small" data-del="${s.id}" style="color:var(--danger)">Hapus</button>
+      </div>`;
+    box.appendChild(el);
+  });
+  box.querySelectorAll('[data-qr]').forEach(b=> b.onclick = ()=> showQR(siswaList.find(s=>s.id===b.dataset.qr)) );
+  box.querySelectorAll('[data-del]').forEach(b=> b.onclick = async ()=>{
+    if(!confirm('Hapus siswa ini?')) return;
+    siswaList = siswaList.filter(s=>s.id!==b.dataset.del);
+    await saveSiswa(); renderSiswa();
+  });
+  populateAbsenSiswaSelect();
+}
+
+function populateAbsenSiswaSelect(){
+  const sel = $('#f-absen-siswa');
+  const current = sel.value;
+  sel.innerHTML = siswaList.length
+    ? siswaList.map(s=>`<option value="${s.id}">${s.nama}</option>`).join('')
+    : '<option value="">Belum ada siswa</option>';
+  if(siswaList.some(s=>s.id===current)) sel.value = current;
+}
+
+function showQR(siswa){
+  $('#qr-nama').textContent = siswa.nama;
+  const qr = qrcode(0,'M');
+  qr.addData(siswa.id);
+  qr.make();
+  $('#qr-code').innerHTML = qr.createImgTag(6);
+  $('#qr-modal').classList.add('show');
+}
+$('#qr-close').onclick = ()=> $('#qr-modal').classList.remove('show');
+
+// ---------- Camera & Scan ----------
+$('#btn-start').onclick = async ()=>{
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    $('#video').srcObject = stream;
+    await $('#video').play();
+    $('#btn-start').style.display='none'; $('#btn-stop').style.display='block';
+    scanning = true;
+    requestAnimationFrame(scanLoop);
+  }catch(e){ alert('Tidak bisa mengakses kamera: '+e.message); }
+};
+$('#btn-stop').onclick = stopCamera;
+function stopCamera(){
+  scanning = false;
+  if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+  $('#btn-start').style.display='block'; $('#btn-stop').style.display='none';
+}
+
+const canvas = document.createElement('canvas');
+const ctx = canvas.getContext('2d');
+
+function scanLoop(){
+  if(!scanning) return;
+  const video = $('#video');
+  if(video.readyState === video.HAVE_ENOUGH_DATA){
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+    ctx.drawImage(video,0,0,canvas.width,canvas.height);
+    const img = ctx.getImageData(0,0,canvas.width,canvas.height);
+    const code = jsQR(img.data, img.width, img.height);
+    if(code && code.data) handleScan(code.data);
+  }
+  requestAnimationFrame(scanLoop);
+}
+
+async function handleScan(id){
+  const now = Date.now();
+  if(lastScan.id === id && lastScan.mode === mode && now - lastScan.t < 4000) return; // cegah dobel-baca
+  lastScan = { id, mode, t: now };
+
+  const siswa = siswaList.find(s=>s.id===id);
+  const today = new Date().toISOString().slice(0,10);
+  const box = $('#scan-result');
+
+  if(!siswa){
+    box.className='warn'; box.textContent = 'Kode tidak dikenali: '+id;
+    beep(200); return;
+  }
+  const sudah = riwayat.find(r=>r.id===siswa.id && r.tanggal===today && r.tipe===mode);
+  if(sudah){
+    box.className='warn';
+    box.textContent = `${siswa.nama} sudah tercatat ${mode==='masuk'?'hadir':'pulang'} hari ini (${sudah.jam}).`;
+    beep(200); return;
+  }
+
+  const jamNow = new Date();
+  const jamStr = jamNow.toTimeString().slice(0,5);
+  const status = mode==='masuk' ? (jamStr > pengaturan.jamMasuk ? 'terlambat' : 'hadir') : 'pulang';
+  const record = { id: siswa.id, nama: siswa.nama, hp: siswa.hp, tanggal: today, jam: jamStr, status, tipe: mode };
+  riwayat.unshift(record);
+  await saveRiwayat();
+  renderRiwayat();
+
+  box.className='ok';
+  box.textContent = mode==='masuk'
+    ? `${siswa.nama} — ${status==='hadir'?'Hadir':'Terlambat'} pukul ${jamStr}`
+    : `${siswa.nama} — Pulang pukul ${jamStr}`;
+  beep(700);
+  if(navigator.vibrate) navigator.vibrate(120);
+}
+
+function beep(freq){
+  try{
+    const actx = new (window.AudioContext||window.webkitAudioContext)();
+    const o = actx.createOscillator(); const g = actx.createGain();
+    o.frequency.value = freq; o.connect(g); g.connect(actx.destination);
+    g.gain.setValueAtTime(0.15, actx.currentTime);
+    o.start(); o.stop(actx.currentTime + 0.12);
+  }catch(e){}
+}
+
+// ---------- Ketidakhadiran manual (Sakit/Izin/Alpa/Bolos) ----------
+$('#btn-catat-absen').onclick = async ()=>{
+  const id = $('#f-absen-siswa').value;
+  const tanggal = $('#f-absen-tanggal').value;
+  const status = $('#f-absen-status').value;
+  const catatan = $('#f-absen-catatan').value.trim();
+  if(!id){ alert('Belum ada siswa terdaftar.'); return; }
+  if(!tanggal){ alert('Pilih tanggal dulu.'); return; }
+  const siswa = siswaList.find(s=>s.id===id);
+  // ganti catatan lama jika sudah ada untuk siswa & tanggal yang sama
+  riwayat = riwayat.filter(r=> !(r.id===id && r.tanggal===tanggal && r.tipe==='absen'));
+  riwayat.unshift({ id, nama: siswa.nama, hp: siswa.hp, tanggal, jam: '-', status, tipe:'absen', catatan });
+  await saveRiwayat();
+  renderRiwayat();
+  $('#f-absen-catatan').value = '';
+  alert(`Ketidakhadiran ${siswa.nama} pada ${labelTanggal(tanggal)} berhasil disimpan.`);
+};
+
+// ---------- Riwayat ----------
+function labelStatusAbsen(status){
+  if(status==='sakit') return 'Sakit';
+  if(status==='izin') return 'Izin';
+  if(status==='bolos') return 'Bolos';
+  return 'Alpa';
+}
+
+function renderRiwayat(){
+  const today = new Date().toISOString().slice(0,10);
+  const todays = riwayat.filter(r=>r.tanggal===today);
+  const body = $('#riwayat-body');
+  body.innerHTML = '';
+  $('#riwayat-kosong').style.display = todays.length ? 'none' : 'block';
+  todays.forEach(r=>{
+    let tipeLabel, statusLabel, statusClass, waMsg;
+    if(r.tipe === 'absen'){
+      tipeLabel = 'Absen';
+      statusLabel = labelStatusAbsen(r.status);
+      statusClass = (r.status==='alpa' || r.status==='bolos') ? (r.status==='bolos' ? 'bolos' : 'absen') : 'hadir';
+      waMsg = encodeURIComponent(`Halo, kami sampaikan bahwa ananda ${r.nama} tidak hadir di sekolah pada ${labelTanggal(r.tanggal)} dengan keterangan: ${statusLabel}${r.catatan ? ' ('+r.catatan+')' : ''}. Terima kasih.`);
+    } else {
+      tipeLabel = r.tipe==='masuk' ? 'Masuk' : 'Pulang';
+      statusLabel = r.tipe==='masuk' ? (r.status==='hadir'?'Hadir':'Terlambat') : 'Pulang';
+      statusClass = r.tipe==='masuk' ? (r.status==='hadir'?'hadir':'terlambat') : 'hadir';
+      waMsg = r.tipe==='masuk'
+        ? encodeURIComponent(`Halo, kami sampaikan bahwa ananda ${r.nama} telah hadir di sekolah hari ini pukul ${r.jam}${r.status==='terlambat' ? ' (terlambat)' : ''}. Terima kasih.`)
+        : encodeURIComponent(`Halo, kami sampaikan bahwa ananda ${r.nama} telah pulang dari sekolah hari ini pukul ${r.jam}. Terima kasih.`);
+    }
+    const waLink = `https://wa.me/${r.hp}?text=${waMsg}`;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${r.jam}</td>
+      <td>${r.nama}</td>
+      <td>${tipeLabel}</td>
+      <td><span class="status-tag ${statusClass}">${statusLabel}</span></td>
+      <td><a href="${waLink}" target="_blank"><button class="secondary small">Kirim WA</button></a></td>`;
+    body.appendChild(tr);
+  });
+}
+
+// ---------- Pengaturan jam masuk ----------
+$('#f-jam-masuk').onchange = async ()=>{
+  pengaturan.jamMasuk = $('#f-jam-masuk').value;
+  $('#f-jam-masuk-scan').value = pengaturan.jamMasuk;
+  await savePengaturan();
+};
+$('#f-jam-masuk-scan').onchange = async ()=>{
+  pengaturan.jamMasuk = $('#f-jam-masuk-scan').value;
+  $('#f-jam-masuk').value = pengaturan.jamMasuk;
+  await savePengaturan();
+};
+
+// ---------- Reset ----------
+$('#btn-reset').onclick = async ()=>{
+  if(!confirm('Yakin ingin menghapus SEMUA data absensi (riwayat)? Data siswa tidak akan terhapus.')) return;
+  riwayat = [];
+  await saveRiwayat();
+  renderRiwayat();
+  alert('Data absensi berhasil dihapus.');
+};
+
+// ---------- Laporan (Excel / Word) ----------
+const HARI_NAMA = ['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
+const BULAN_NAMA = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+
+function labelTanggal(tgl){
+  const d = new Date(tgl+'T00:00:00');
+  return `${HARI_NAMA[d.getDay()]}, ${d.getDate()} ${BULAN_NAMA[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+$('#f-periode').onchange = ()=>{
+  const p = $('#f-periode').value;
+  $('#label-tanggal-laporan').textContent = p==='harian'
+    ? 'Pilih tanggal'
+    : p==='mingguan'
+      ? 'Pilih tanggal (dalam minggu tsb.)'
+      : 'Pilih tanggal (dalam bulan tsb.)';
+};
+
+function getRangeUntukPeriode(periode, tglRef){
+  const d = new Date(tglRef+'T00:00:00');
+  if(periode === 'harian'){
+    return { start: tglRef, end: tglRef };
+  }
+  if(periode === 'mingguan'){
+    const hari = d.getDay(); // 0=Minggu
+    const selisihKeSenin = (hari === 0 ? -6 : 1 - hari);
+    const senin = new Date(d); senin.setDate(d.getDate() + selisihKeSenin);
+    const minggu = new Date(senin); minggu.setDate(senin.getDate() + 6);
+    return { start: senin.toISOString().slice(0,10), end: minggu.toISOString().slice(0,10) };
+  }
+  // bulanan
+  const awal = new Date(d.getFullYear(), d.getMonth(), 1);
+  const akhir = new Date(d.getFullYear(), d.getMonth()+1, 0);
+  return { start: awal.toISOString().slice(0,10), end: akhir.toISOString().slice(0,10) };
+}
+
+// Menyusun data per tanggal, dengan jam hadir & jam pulang setiap siswa berdampingan
+function buildLaporanRows(startTgl, endTgl){
+  const rows = [];
+  let d = new Date(startTgl+'T00:00:00');
+  const end = new Date(endTgl+'T00:00:00');
+  while(d <= end){
+    const tgl = d.toISOString().slice(0,10);
+    const catatanHari = riwayat.filter(r=>r.tanggal===tgl);
+    const siswaRows = siswaList.map(s=>{
+      const masuk = catatanHari.find(r=>r.id===s.id && r.tipe==='masuk');
+      const pulang = catatanHari.find(r=>r.id===s.id && r.tipe==='pulang');
+      const absen = catatanHari.find(r=>r.id===s.id && r.tipe==='absen');
+      let keterangan = 'Tanpa Keterangan';
+      if(absen){
+        keterangan = labelStatusAbsen(absen.status);
+      } else if(masuk){
+        keterangan = masuk.status==='terlambat' ? 'Terlambat' : 'Hadir';
+      }
+      return {
+        nama: s.nama,
+        jamHadir: masuk ? masuk.jam : '-',
+        jamPulang: pulang ? pulang.jam : '-',
+        keterangan,
+        catatan: absen ? (absen.catatan || '') : ''
+      };
+    });
+    rows.push({ tanggal: tgl, label: labelTanggal(tgl), siswaRows });
+    d.setDate(d.getDate()+1);
+  }
+  return rows;
+}
+
+$('#btn-unduh-laporan').onclick = ()=>{
+  if(!siswaList.length){ alert('Belum ada siswa terdaftar.'); return; }
+  const periode = $('#f-periode').value;
+  const tglRef = $('#f-tanggal-laporan').value;
+  if(!tglRef){ alert('Pilih tanggal dulu.'); return; }
+  const { start, end } = getRangeUntukPeriode(periode, tglRef);
+  const laporanRows = buildLaporanRows(start, end);
+  const format = $('#f-format-laporan').value;
+  const namaPeriode = periode.charAt(0).toUpperCase()+periode.slice(1);
+  const judul = `Laporan Kehadiran (${namaPeriode})`;
+  if(format === 'excel') unduhExcel(laporanRows, judul, start, end);
+  else unduhWord(laporanRows, judul, start, end);
+  $('#laporan-info').textContent = `Laporan ${labelTanggal(start)} s.d. ${labelTanggal(end)} berhasil dibuat.`;
+};
+
+function unduhExcel(laporanRows, judul, start, end){
+  const wb = XLSX.utils.book_new();
+  const namaSheetTerpakai = [];
+  laporanRows.forEach(hari=>{
+    const aoa = [
+      [judul],
+      [hari.label],
+      [],
+      ['No','Nama','Jam Hadir','Jam Pulang','Keterangan','Catatan']
+    ];
+    hari.siswaRows.forEach((r,i)=>{
+      aoa.push([i+1, r.nama, r.jamHadir, r.jamPulang, r.keterangan, r.catatan]);
+    });
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{wch:4},{wch:24},{wch:12},{wch:12},{wch:16},{wch:24}];
+    const d = new Date(hari.tanggal+'T00:00:00');
+    let namaSheet = `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
+    let base = namaSheet, n = 1;
+    while(namaSheetTerpakai.includes(namaSheet)){ namaSheet = base+'_'+(n++); }
+    namaSheetTerpakai.push(namaSheet);
+    XLSX.utils.book_append_sheet(wb, ws, namaSheet);
+  });
+  const fname = `Laporan_Kehadiran_${start}_sd_${end}.xlsx`;
+  XLSX.writeFile(wb, fname);
+}
+
+function unduhWord(laporanRows, judul, start, end){
+  let body = `<h2>${judul}</h2><p>Periode: ${labelTanggal(start)} s.d. ${labelTanggal(end)}</p>`;
+  laporanRows.forEach(hari=>{
+    body += `<h3>${hari.label}</h3>`;
+    body += `<table border="1" cellspacing="0" cellpadding="4" style="border-collapse:collapse;width:100%;font-family:Calibri,sans-serif;font-size:13px;">
+      <tr style="background:#eee;"><th>No</th><th>Nama</th><th>Jam Hadir</th><th>Jam Pulang</th><th>Keterangan</th><th>Catatan</th></tr>`;
+    hari.siswaRows.forEach((r,i)=>{
+      body += `<tr><td>${i+1}</td><td>${r.nama}</td><td>${r.jamHadir}</td><td>${r.jamPulang}</td><td>${r.keterangan}</td><td>${r.catatan}</td></tr>`;
+    });
+    body += `</table><br>`;
+  });
+  const html = `
+    <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+    <head><meta charset="utf-8"><title>${judul}</title></head>
+    <body>${body}</body></html>`;
+  const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
+  const fname = `Laporan_Kehadiran_${start}_sd_${end}.doc`;
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = fname;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(link.href);
+}
+
+loadAll();
+
+// === PWA: daftarkan service worker supaya aplikasi bisa diinstall & dibuka offline ===
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('sw.js').catch(e=>console.log('SW gagal:', e));
+  });
+}
+</script>
+</body>
+</html>
