@@ -151,6 +151,7 @@
         <div class="cam-btns">
           <button class="primary" id="btn-start">Mulai Kamera</button>
           <button class="secondary" id="btn-stop" style="display:none;">Berhenti</button>
+          <button class="secondary" id="btn-switch-cam" style="flex:0 0 auto;padding:12px 14px;" title="Ganti kamera depan/belakang">🔄</button>
         </div>
         <div id="scan-result"></div>
       </div>
@@ -412,11 +413,25 @@ function showQR(siswa){
 $('#qr-close').onclick = ()=> $('#qr-modal').classList.remove('show');
 
 // ---------- Camera & Scan ----------
+// Kamera terakhir yang dipakai disimpan supaya HP mengingat pilihan Anda
+let facingMode = localStorage.getItem('absen_facingMode') || 'environment'; // 'environment' = belakang, 'user' = depan
+
+async function startCameraStream(){
+  if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facingMode } } });
+  }catch(e){
+    // Kalau kamera yang diminta tidak tersedia (misalnya HP cuma punya 1 kamera),
+    // coba lagi tanpa syarat facingMode supaya tetap bisa jalan.
+    stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  }
+  $('#video').srcObject = stream;
+  await $('#video').play();
+}
+
 $('#btn-start').onclick = async ()=>{
   try{
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-    $('#video').srcObject = stream;
-    await $('#video').play();
+    await startCameraStream();
     $('#btn-start').style.display='none'; $('#btn-stop').style.display='block';
     scanning = true;
     requestAnimationFrame(scanLoop);
@@ -429,18 +444,70 @@ function stopCamera(){
   $('#btn-start').style.display='block'; $('#btn-stop').style.display='none';
 }
 
-const canvas = document.createElement('canvas');
-const ctx = canvas.getContext('2d');
+$('#btn-switch-cam').onclick = async ()=>{
+  facingMode = (facingMode === 'environment') ? 'user' : 'environment';
+  localStorage.setItem('absen_facingMode', facingMode);
+  const box = $('#scan-result');
+  if(stream){
+    // Kamera sedang aktif -> langsung ganti tanpa perlu tekan "Mulai Kamera" lagi
+    try{
+      await startCameraStream();
+      box.className='ok';
+      box.textContent = 'Kamera diganti ke ' + (facingMode==='environment' ? 'belakang' : 'depan') + '.';
+    }catch(e){ alert('Tidak bisa mengganti kamera: '+e.message); }
+  } else {
+    box.className='ok';
+    box.textContent = 'Kamera berikutnya akan pakai kamera ' + (facingMode==='environment' ? 'belakang' : 'depan') + '. Tekan "Mulai Kamera".';
+  }
+};
 
-function scanLoop(){
+const canvas = document.createElement('canvas');
+const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+/* === Pemindai QR "pintar" ===
+   Kalau browser mendukung BarcodeDetector (teknologi bawaan Chrome, sama
+   yang dipakai fitur scan QR Chrome), pakai itu karena jauh lebih akurat
+   (tahan blur, pantulan layar, dsb). Kalau tidak didukung (misalnya Safari
+   di iPhone), otomatis pakai jsQR seperti sebelumnya. */
+let barcodeDetector = null;
+let useNativeDetector = false;
+(async () => {
+  if ('BarcodeDetector' in window) {
+    try {
+      const formats = await BarcodeDetector.getSupportedFormats();
+      if (formats.includes('qr_code')) {
+        barcodeDetector = new BarcodeDetector({ formats: ['qr_code'] });
+        useNativeDetector = true;
+      }
+    } catch (e) { useNativeDetector = false; }
+  }
+})();
+
+let detecting = false;
+
+async function scanLoop(){
   if(!scanning) return;
   const video = $('#video');
-  if(video.readyState === video.HAVE_ENOUGH_DATA){
-    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
-    ctx.drawImage(video,0,0,canvas.width,canvas.height);
-    const img = ctx.getImageData(0,0,canvas.width,canvas.height);
-    const code = jsQR(img.data, img.width, img.height);
-    if(code && code.data) handleScan(code.data);
+  if(video.readyState === video.HAVE_ENOUGH_DATA && !detecting){
+    detecting = true;
+    try{
+      if(useNativeDetector && barcodeDetector){
+        const codes = await barcodeDetector.detect(video);
+        if(codes && codes.length > 0 && codes[0].rawValue){
+          handleScan(codes[0].rawValue);
+        }
+      } else {
+        canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+        ctx.drawImage(video,0,0,canvas.width,canvas.height);
+        const img = ctx.getImageData(0,0,canvas.width,canvas.height);
+        const code = jsQR(img.data, img.width, img.height);
+        if(code && code.data) handleScan(code.data);
+      }
+    }catch(e){
+      // Kalau native detector gagal di tengah jalan, jangan hentikan loop —
+      // biarkan lanjut mencoba lagi di frame berikutnya.
+    }
+    detecting = false;
   }
   requestAnimationFrame(scanLoop);
 }
@@ -474,9 +541,14 @@ async function handleScan(id){
   renderRiwayat();
 
   box.className='ok';
-  box.textContent = mode==='masuk'
-    ? `${siswa.nama} — ${status==='hadir'?'Hadir':'Terlambat'} pukul ${jamStr}`
-    : `${siswa.nama} — Pulang pukul ${jamStr}`;
+  const jamText = mode==='masuk'
+    ? `${status==='hadir'?'Hadir':'Terlambat'} pukul ${jamStr}`
+    : `Pulang pukul ${jamStr}`;
+  const waMsg = mode==='masuk'
+    ? encodeURIComponent(`Halo, kami sampaikan bahwa ananda ${siswa.nama} telah hadir di sekolah hari ini pukul ${jamStr}${status==='terlambat' ? ' (terlambat)' : ''}. Terima kasih.`)
+    : encodeURIComponent(`Halo, kami sampaikan bahwa ananda ${siswa.nama} telah pulang dari sekolah hari ini pukul ${jamStr}. Terima kasih.`);
+  const waLink = `https://wa.me/${siswa.hp}?text=${waMsg}`;
+  box.innerHTML = `${siswa.nama} — ${jamText}<br><a href="${waLink}" target="_blank"><button class="primary small" style="margin-top:8px;">Kirim WA ke Orang Tua</button></a>`;
   beep(700);
   if(navigator.vibrate) navigator.vibrate(120);
 }
