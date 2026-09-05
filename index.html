@@ -575,8 +575,9 @@ let facingMode = localStorage.getItem('absen_facingMode') || 'environment'; // '
 
 async function startCameraStream(){
   if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+  const constraints = { video: { facingMode: { ideal: facingMode }, width: { ideal: 1280 }, height: { ideal: 720 } } };
   try{
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facingMode } } });
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
   }catch(e){
     // Kalau kamera yang diminta tidak tersedia (misalnya HP cuma punya 1 kamera),
     // coba lagi tanpa syarat facingMode supaya tetap bisa jalan.
@@ -647,23 +648,29 @@ async function scanLoop(){
   const video = $('#video');
   if(video.readyState === video.HAVE_ENOUGH_DATA && !detecting){
     detecting = true;
+    let found = null;
     try{
       if(useNativeDetector && barcodeDetector){
         const codes = await barcodeDetector.detect(video);
         if(codes && codes.length > 0 && codes[0].rawValue){
-          handleScan(codes[0].rawValue);
+          found = codes[0].rawValue;
         }
-      } else {
+      }
+    }catch(e){
+      // Kalau native detector error, lanjut coba jsQR di bawah
+    }
+    if(!found){
+      // Selalu coba jsQR juga sebagai cadangan, termasuk saat native detector
+      // "berhasil jalan" tapi diam-diam tidak menemukan apa-apa (tanpa error).
+      try{
         canvas.width = video.videoWidth; canvas.height = video.videoHeight;
         ctx.drawImage(video,0,0,canvas.width,canvas.height);
         const img = ctx.getImageData(0,0,canvas.width,canvas.height);
         const code = jsQR(img.data, img.width, img.height);
-        if(code && code.data) handleScan(code.data);
-      }
-    }catch(e){
-      // Kalau native detector gagal di tengah jalan, jangan hentikan loop —
-      // biarkan lanjut mencoba lagi di frame berikutnya.
+        if(code && code.data) found = code.data;
+      }catch(e){}
     }
+    if(found) handleScan(found);
     detecting = false;
   }
   requestAnimationFrame(scanLoop);
@@ -838,16 +845,27 @@ function getRangeUntukPeriode(periode, tglRef){
 
 // Menyusun data per tanggal, dengan jam hadir & jam pulang setiap siswa berdampingan
 function buildLaporanRows(startTgl, endTgl){
+  // Kelompokkan riwayat berdasarkan tanggal & siswa dalam SATU kali proses saja
+  // (bukan mencari ulang ke seluruh riwayat untuk tiap hari x tiap siswa),
+  // supaya laporan tetap cepat dibuat meski riwayat sudah menumpuk banyak.
+  const byDate = {};
+  for(const r of riwayat){
+    if(!byDate[r.tanggal]) byDate[r.tanggal] = {};
+    if(!byDate[r.tanggal][r.id]) byDate[r.tanggal][r.id] = {};
+    byDate[r.tanggal][r.id][r.tipe] = r;
+  }
+
   const rows = [];
   let d = new Date(startTgl+'T00:00:00');
   const end = new Date(endTgl+'T00:00:00');
   while(d <= end){
     const tgl = d.toISOString().slice(0,10);
-    const catatanHari = riwayat.filter(r=>r.tanggal===tgl);
+    const catatanHariById = byDate[tgl] || {};
     const siswaRows = siswaList.map(s=>{
-      const masuk = catatanHari.find(r=>r.id===s.id && r.tipe==='masuk');
-      const pulang = catatanHari.find(r=>r.id===s.id && r.tipe==='pulang');
-      const absen = catatanHari.find(r=>r.id===s.id && r.tipe==='absen');
+      const rec = catatanHariById[s.id] || {};
+      const masuk = rec['masuk'];
+      const pulang = rec['pulang'];
+      const absen = rec['absen'];
       let keterangan = 'Tanpa Keterangan';
       if(absen){
         keterangan = labelStatusAbsen(absen.status);
@@ -873,14 +891,28 @@ $('#btn-unduh-laporan').onclick = ()=>{
   const periode = $('#f-periode').value;
   const tglRef = $('#f-tanggal-laporan').value;
   if(!tglRef){ alert('Pilih tanggal dulu.'); return; }
-  const { start, end } = getRangeUntukPeriode(periode, tglRef);
-  const laporanRows = buildLaporanRows(start, end);
-  const format = $('#f-format-laporan').value;
-  const namaPeriode = periode.charAt(0).toUpperCase()+periode.slice(1);
-  const judul = `Laporan Kehadiran (${namaPeriode})`;
-  if(format === 'excel') unduhExcel(laporanRows, judul, start, end);
-  else unduhWord(laporanRows, judul, start, end);
-  $('#laporan-info').textContent = `Laporan ${labelTanggal(start)} s.d. ${labelTanggal(end)} berhasil dibuat.`;
+  const btn = $('#btn-unduh-laporan');
+  const teksAsli = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Memproses laporan…';
+  $('#laporan-info').textContent = '';
+  // Beri jeda sesaat supaya tombol "Memproses..." sempat tampil dulu
+  // sebelum perhitungan berat mulai berjalan (biar tidak terasa macet).
+  setTimeout(()=>{
+    try{
+      const { start, end } = getRangeUntukPeriode(periode, tglRef);
+      const laporanRows = buildLaporanRows(start, end);
+      const format = $('#f-format-laporan').value;
+      const namaPeriode = periode.charAt(0).toUpperCase()+periode.slice(1);
+      const judul = `Laporan Kehadiran (${namaPeriode})`;
+      if(format === 'excel') unduhExcel(laporanRows, judul, start, end);
+      else unduhWord(laporanRows, judul, start, end);
+      $('#laporan-info').textContent = `Laporan ${labelTanggal(start)} s.d. ${labelTanggal(end)} berhasil dibuat.`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = teksAsli;
+    }
+  }, 30);
 };
 
 function unduhExcel(laporanRows, judul, start, end){
